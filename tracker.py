@@ -3,6 +3,13 @@ from cv2 import aruco
 import numpy as np
 import threading
 import queue
+from mpi4py import MPI
+
+def get_all_states(comm, state):
+    size = comm.Get_size()
+    all_states = np.zeros((size, len(state)), dtype = np.float)
+    comm.Allgather([state, MPI.FLOAT], [all_states, MPI.FLOAT])
+    return all_states
 
 def frame_getter(cap, cal_mtx, dist, frame_buffer, running):
     # cap is opencv capture object
@@ -27,7 +34,6 @@ def frame_getter(cap, cal_mtx, dist, frame_buffer, running):
 
 def aruco_tagger(frame_buffer,  aruco_dict, parameters, running):
 
-
     while running[0]:
         current_frame = frame_buffer.get()
         if current_frame is not None:
@@ -42,10 +48,12 @@ def aruco_tagger(frame_buffer,  aruco_dict, parameters, running):
             cv.imshow('frame', tagged_frame)
             cv.waitKey(1)
 
-
             return corners, ids
 
 if __name__ == '__main__':
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    state = np.zeros(6, dtype = np.float) # [x, y, z, row, pitch, yaw]
     cap = cv.VideoCapture(0)
 
     if not cap.isOpened():
@@ -57,7 +65,6 @@ if __name__ == '__main__':
     cal_file.release()
 
     tag_length = 0.03
-
 
     aruco_dict = aruco.Dictionary_get(aruco.DICT_6X6_250)
     aruco_parameters = aruco.DetectorParameters_create()
@@ -81,6 +88,14 @@ if __name__ == '__main__':
             # rotations are in euler angles, translations in the same unit as tag_length
             aruco_rotations, aruco_translations, object_points = aruco.estimatePoseSingleMarkers(aruco_corners, tag_length, cal_mtx, dist)
             print(aruco_rotations)
+
+            # example of how to update states
+            # for i in range(0, len(state)):
+            #     state[i] = rank + np.absolute(np.random.normal(loc = 0.0, scale = 0.1, size = 1))
+
+            # call this when 'state' is updated
+            # all_states = get_all_states(comm, state)
+            # print("my rank:", rank, ", my state:", state, "\nall states:", all_states)
 
             # displayed = True
         except queue.Empty:
